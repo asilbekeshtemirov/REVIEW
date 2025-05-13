@@ -1,48 +1,57 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UseGuards, UseInterceptors, Version } from "@nestjs/common";
 import { UserService } from "./user.service";
-import { CreateUserDto } from "./dtos";
+import { CreateUserDto, GetAllUsersQueryDto } from "./dtos";
 import { UpdateUserDto } from "./dtos/update-user.dto";
-import { ApiBearerAuth } from "@nestjs/swagger";
+import { ApiBearerAuth, ApiConsumes, ApiOperation } from "@nestjs/swagger";
 import { Protected } from "src/decorators/protected.decorator";
 import { Roles } from "src/decorators/role.decorator";
 import { UserRoles } from "./enums";
-import { CheckAuth } from "src/guards/check.token.guard";
-import { CheckRolesGuard } from "src/guards/check.role.guard";
 
-@Controller('users')
-@UseGuards(CheckAuth,CheckRolesGuard)
-export class UserController{
-    constructor(private service:UserService){}
-    @ApiBearerAuth()
-    @Get()
-    @Protected(true)
-    @Roles([UserRoles.ADMIN])
-    async getAll(){
-        return this.service.getAll()
-    }
 
-    @ApiBearerAuth()
-    @Post()
-    @Protected(true)
-    @Roles([UserRoles.ADMIN])
-    async createNew(@Body() payload:CreateUserDto){
-        return this.service.createUser(payload)
-    }
 
-    @ApiBearerAuth()
-    @Patch(':id')
-    @Protected(true)
-    @Roles([UserRoles.ADMIN])
-    async updateUser(@Body() payload:UpdateUserDto,
-                @Param('id',ParseIntPipe) id:number){
-        return this.service.updateUser(payload,id)
-    }
 
-    @ApiBearerAuth()
-    @Delete(':id')
-    @Protected(true)
-    @Roles([UserRoles.ADMIN])
-    async deleteUser(@Param('id', ParseIntPipe) id:number){
-        return this.service.deleteUser(id)
-    };
+@ApiBearerAuth()
+@Controller({
+  path: 'users',
+  version: ["2"],
+})
+export class UserController {
+  constructor(private service: UserService) {}
+
+  @ApiOperation({ summary: 'Barcha userlarni olish' })
+  @Version(["1"])
+  @Get()
+  @Protected(true)
+  @Roles([UserRoles.ADMIN])
+  async getAll(@Query() queries: GetAllUsersQueryDto) {
+    return await this.service.getAll(queries);
+  }
+
+  @ApiOperation({ summary: 'User yaratish' })
+  @Post()
+  @Protected(true)
+  @Roles([UserRoles.ADMIN])
+  async create(@Body() payload: CreateUserDto) {
+    return await this.service.create(payload);
+  }
+
+  @ApiOperation({ summary: 'User yangilash' })
+  @Patch(':id')
+  @Protected(true)
+  @Roles([UserRoles.ADMIN, UserRoles.USER])
+  async update(
+    @Body() payload: UpdateUserDto,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return await this.service.update(id, payload,);
+  }
+
+
+  @ApiOperation({ summary: "User o'chirish" })
+  @Delete(':id')
+  @Protected(true)
+  @Roles([UserRoles.ADMIN])
+  async delete(@Param('id', ParseIntPipe) id: number) {
+    return await this.service.delete(id);
+  }
 }

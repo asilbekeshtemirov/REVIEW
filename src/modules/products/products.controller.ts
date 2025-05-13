@@ -35,15 +35,15 @@ export class ProductController {
         properties: {
           name: {
             type: 'string',
-            example: 'Computer', 
+            example: 'Iphone 16 pro max', 
           },
           price: {
             type: 'number',
-            example: 600,  
+            example: 1200,  
           },
           count: {
             type: 'number',  
-            example: 6,  
+            example: 7,  
           },
           image: {
             type: 'string',

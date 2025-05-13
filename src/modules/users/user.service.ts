@@ -1,78 +1,165 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
-import { InjectModel } from "@nestjs/sequelize";
-import { User } from "./model/user.model";
-import { CreateUserDto } from "./dtos";
-import  * as bcrypt from "bcryptjs"
-import { UpdateUserDto } from "./dtos/update-user.dto";
-
-@Injectable()
-export class UserService {
-    constructor(@InjectModel(User) private UserModel:typeof User){}
-
-    async getAll(){
-        const users = await this.UserModel.findAll()
-        return {
-            message:"Success!",
-            data:users,
-        }
+import {
+    BadRequestException,
+    ConflictException,
+    Injectable,
+    NotFoundException,
+    OnModuleInit,
+  } from '@nestjs/common';
+  import { InjectModel } from '@nestjs/sequelize';
+  import * as bcrypt from 'bcryptjs';
+  import { User } from './model';
+  import {
+    CreateUserDto,
+    GetAllUsersQueryDto,
+    UpdateUserDto,
+  } from './dtos';
+  import { FsHelper } from 'src/helpers';
+  import { UserRoles } from './enums';
+  import { Op } from 'sequelize';
+  
+  @Injectable()
+  export class UserService implements OnModuleInit {
+    constructor(
+      @InjectModel(User) private userModel: typeof User,
+      private fsHelper: FsHelper,
+    ) {}
+  
+    async onModuleInit() {
+      await this.seedUsers();
     }
-
-    async createUser(payload:CreateUserDto){
-        const founded = await this.UserModel.findOne({where:{email:payload.email}})
-
-        if(founded?.dataValues){
-            throw new BadRequestException("User with this email is already exist!");
-        }
-
-        const passwordHash = bcrypt.hashSync(payload.password)
-
-        const user = await this.UserModel.create({
-            email:payload.email,
-            name:payload.name,
-            age:payload.age,
-            password:passwordHash
-        })
-        return {
-            message:"Succcessfully created!",
-            data:user,
-        }
+  
+    async getAll(queries: GetAllUsersQueryDto) {
+      let filters: any = {};
+  
+      if (queries.minAge) {
+        filters.age = {
+          [Op.gte]: queries.minAge,
+        };
+      }
+  
+      if (queries.maxAge) {
+        filters.age = {
+          ...filters?.age,
+          [Op.lte]: queries.maxAge,
+        };
+      }
+  
+      if (queries.role) {
+        filters.role = {
+          [Op.eq]: queries.role,
+        };
+      }
+  
+      const { count, rows: users } = await this.userModel.findAndCountAll({
+        limit: queries.limit || 10,
+        offset: ((queries.page || 1) - 1) * (queries.limit || 10),
+        order: queries.sortField
+          ? [[queries.sortField, queries.sortOrder || 'DESC']]
+          : undefined,
+        where: { ...filters },
+        attributes: queries.fields,
+      });
+      return {
+        count: count,
+        limit: queries.limit || 10,
+        page: queries.page || 1,
+        data: users,
+      };
     }
-
-    async updateUser(payload:UpdateUserDto,id:number){
-        const founded = await this.UserModel.findOne({where:{id:id}})
-
-        if(!founded?.dataValues){
-            throw new BadRequestException("User with this email does not exist!");
-        }
-
-        const passwordHash = bcrypt.hashSync(payload.password)
-
-        const updatedUser = await this.UserModel.update({            
-            name:payload.name||founded.dataValues.name,
-            age:payload.age || founded.dataValues.age,
-            password:passwordHash || founded.dataValues.password,
+  
+    async create(payload: CreateUserDto) {
+      const foundedUser = await this.userModel.findOne({
+        where: { email: payload.email },
+      });
+  
+      if (foundedUser) {
+        throw new ConflictException("Bunday email'lik foydalanuvchi bor");
+      }
+  
+      const passHash = bcrypt.hashSync(payload.password);
+  
+      const user = await this.userModel.create({
+        email: payload.email,
+        name: payload.name,
+        age: payload.age,
+        password: passHash,
+        role: payload.role,
+      });
+  
+      return {
+        message: 'Yaratildi',
+        data: user,
+      };
+    }
+  
+    async update(id: number, payload: UpdateUserDto) {
+      const foundedUser = await this.userModel.findByPk(id);
+  
+      if (!foundedUser) {
+        throw new ConflictException('Foydalanuvchi topilmadi');
+      }
+  
+      const updatedUser = await this.userModel.update(
+        {
+          name: payload.name,
+          age: payload.age,
+          role: payload.role,
         },
-        {where:{id:id}})
-        return {
-            message:"Successfully updated!",
-            data:updatedUser
-        }
-};
-
-
-
-    async deleteUser(id:number){
-        const founded = await this.UserModel.findOne({where:{id:id}})
-
-        if(!founded?.dataValues){
-            throw new BadRequestException("User with this email does not exist!");
-        }
-
-        const deletedUser = await this.UserModel.destroy({where:{id:id}})
-
-        return {
-            message:"Successfully deleted!",
-            data:deletedUser
-        }
+        { where: { id }, returning: true },
+      );
+  
+      return {
+        message: 'success',
+        data: updatedUser,
+      };
     }
-}
+  
+    async delete(id: number) {
+      const foundedUser = await this.userModel.findByPk(id);
+  
+      if (!foundedUser) throw new NotFoundException('Foydalanuvchi topilmadi');
+  
+      if (foundedUser.image) {
+        await this.fsHelper.deleteFile(foundedUser.image);  
+      }
+  
+      await this.userModel.destroy({ where: { id } });
+  
+      return {
+        message: "O'chirildi",
+        data: foundedUser,
+      };
+    }
+  
+    async seedUsers() {
+      const defaultUsers = [
+        {
+          name: 'Billy',
+          age: 25,
+          email: 'billy@gmail.com',
+          password: 'billy',
+          role: UserRoles.ADMIN,
+        },
+      ];
+  
+      for (let user of defaultUsers) {
+        const foundedUser = await this.userModel.findOne({
+          where: { email: user.email },
+        });
+  
+        if (!foundedUser) {
+          const passHash = bcrypt.hashSync(user.password);
+          await this.userModel.create({
+            name: user.name,
+            role: user.role,
+            age: user.age,
+            email: user.email,
+            password: passHash,
+          });
+        }
+      }
+  
+      console.log('Adminlar yaratildi ✅');
+    }
+  }
+  
